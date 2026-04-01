@@ -1,7 +1,6 @@
 #include "wifi_manager.h"
 #include "config_manager.h"
 #include "lcd_manager.h"
-#include "portal_config.h"
 
 WifiManager Wifi;
 
@@ -82,7 +81,6 @@ void WifiManager::handle()
     {
         LCD.setStatus(true);
         LCD.setIP(WiFi.localIP().toString());
-        Portal.beginLan();
         if (!_wasConnected)
         {
             _justConnected = true;

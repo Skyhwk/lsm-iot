@@ -26,6 +26,8 @@ const int daylightOffset_sec = 0;
 #define SoundSensorPin 34
 #define CALIB_PIN 35
 #define VREF 3.3
+
+//pin SD Card
 #define CS_PIN 5
 #define MOSI_PIN 19
 #define MISO_PIN 23

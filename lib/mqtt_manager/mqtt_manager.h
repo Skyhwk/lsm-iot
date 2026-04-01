@@ -26,7 +26,6 @@ private:
     void handleMessage(const char *topic, const byte *payload, unsigned int length);
 
     bool handleCommandJson(const String &topic, const String &message);
-    bool syncAccessFromHttp(const String &url, uint32_t timeoutMs);
 
     WiFiClient espClient;
     PubSubClient client{espClient};

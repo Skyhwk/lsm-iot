@@ -8,44 +8,6 @@ bool StorageManager::begin()
         return false;
 
     // ===============================
-    // ACCESS FILE
-    // ===============================
-
-    if (!SD.exists(ACCESS_FILE))
-    {
-        // File belum ada → buat kosong
-        File f = SD.open(ACCESS_FILE, FILE_WRITE);
-        if (!f)
-            return false;
-        f.close();
-        Serial.println("access.bin created");
-    }
-    else
-    {
-        // File ada → cek validitas
-        File f = SD.open(ACCESS_FILE, FILE_READ);
-        if (!f)
-            return false;
-
-        if (f.size() % sizeof(AccessRecord) != 0)
-        {
-            Serial.println("Access file corrupted. Resetting...");
-            f.close();
-            SD.remove(ACCESS_FILE);
-
-            File nf = SD.open(ACCESS_FILE, FILE_WRITE);
-            if (!nf)
-                return false;
-            nf.close();
-            Serial.println("access.bin recreated");
-        }
-        else
-        {
-            f.close();
-        }
-    }
-
-    // ===============================
     // LOG FILE
     // ===============================
 
@@ -67,93 +29,6 @@ void StorageManager::safeCopy(char *dest, const char *src, size_t len)
 {
     memset(dest, 0, len);
     strncpy(dest, src, len - 1);
-}
-
-//
-// ====================== ACCESS ======================
-//
-
-bool StorageManager::clearAccess()
-{
-    SD.remove(ACCESS_FILE);
-    File f = SD.open(ACCESS_FILE, FILE_WRITE);
-    if (!f)
-        return false;
-    f.close();
-    return true;
-}
-
-bool StorageManager::addAccess(const AccessRecord &rec)
-{
-    File f = SD.open(ACCESS_FILE, FILE_APPEND);
-    if (!f)
-        return false;
-
-    f.write((uint8_t *)&rec, sizeof(rec));
-    f.close();
-    return true;
-}
-
-bool StorageManager::replaceAccessFromStream(Stream &stream, size_t contentLength)
-{
-    File f = SD.open("/access.tmp", FILE_WRITE);
-    if (!f)
-        return false;
-
-    size_t total = 0;
-    uint8_t buffer[512];
-
-    while (total < contentLength)
-    {
-        int available = stream.available();
-        if (available)
-        {
-            int readLen = stream.readBytes((char *)buffer, min((int)sizeof(buffer), available));
-            f.write(buffer, readLen);
-            total += readLen;
-        }
-    }
-
-    f.close();
-
-    SD.remove(ACCESS_FILE);
-    SD.rename("/access.tmp", ACCESS_FILE);
-
-    return true;
-}
-
-bool StorageManager::findByRFID(const char *rfid, AccessRecord &out)
-{
-    File f = SD.open(ACCESS_FILE, FILE_READ);
-    if (!f)
-        return false;
-
-    AccessRecord rec;
-
-    while (f.read((uint8_t *)&rec, sizeof(rec)) == sizeof(rec))
-    {
-        if (strcmp(rec.rfid, rfid) == 0)
-        {
-            out = rec;
-            f.close();
-            return true;
-        }
-    }
-
-    f.close();
-    return false;
-}
-
-uint32_t StorageManager::countAccess()
-{
-    File f = SD.open(ACCESS_FILE, FILE_READ);
-    if (!f)
-        return 0;
-
-    uint32_t size = f.size();
-    f.close();
-
-    return size / sizeof(AccessRecord);
 }
 
 //

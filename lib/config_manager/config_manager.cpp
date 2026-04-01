@@ -73,11 +73,11 @@ void ConfigManager::setDefaultIfInvalid()
 {
     // SSID
     if (config.ssid[0] == '\0')
-        strcpy(config.ssid, "INTILAB");
+        strcpy(config.ssid, "LSM");
 
     // Password boleh kosong
     if (config.password[0] == '\0')
-        strcpy(config.password, "");
+        strcpy(config.password, "intiLab68");
 
     // DHCP
     if (config.dhcp)
@@ -86,6 +86,10 @@ void ConfigManager::setDefaultIfInvalid()
         strcpy(config.gateway, "");
         strcpy(config.subnet, "");
     }
+
+    // Host
+    if (config.host[0] == '\0')
+        strcpy(config.host, "apps.intilab.com");
 
     // Port
     if (config.port <= 0)
@@ -100,34 +104,4 @@ void ConfigManager::setDefaultIfInvalid()
     // Offset day
     if (config.offsetday <= 0)
         config.offsetday = 7;
-
-    // Mode Device Data must be valid
-    int mdd = (int)config.modeDeviceData;
-    if (mdd == '0' || mdd == '1')
-        mdd -= '0';
-    if (mdd != (int)MODE_ACCESS_DOOR && mdd != (int)MODE_ATTENDANCE)
-        mdd = (int)MODE_ACCESS_DOOR;
-    config.modeDeviceData = (DeviceModeData)mdd;
-
-    // Mode must be valid for selected device type
-    int md = (int)config.mode;
-    int originalMd = md;
-
-    if (config.modeDeviceData == MODE_ACCESS_DOOR)
-    {
-        if (md != (int)MODE_NORMAL && md != (int)MODE_OPEN && md != (int)MODE_CLOSE)
-            md = (int)MODE_NORMAL;
-    }
-    else
-    {
-        if (md != (int)MODE_SCAN && md != (int)MODE_ADD)
-            md = (int)MODE_SCAN;
-    }
-
-    if (originalMd != md)
-    {
-        Serial.println("[Config] Mode invalid! Reset from " + String(originalMd) + " to " + String(md));
-    }
-
-    config.mode = (DeviceMode)md;
 }

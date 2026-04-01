@@ -5,9 +5,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <door_manager.h>
 #include "lcd_manager.h"
-#include "buzzer_manager.h"
 
 MQTTManager MQTT;
 
@@ -225,102 +223,6 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
     String data = doc["data"] | "";
 
     Serial.println("[MQTT] Command cmd=" + cmd);
-
-    if (cmd == "sync_access" || cmd == "sync_user" || cmd == "sync_users" || cmd == "syncuser")
-    {
-        if (data.length() == 0)
-            return false;
-        return syncAccessFromHttp(data, 15000);
-    }
-
-    if (cmd == "add_user" || cmd == "delete_user" || cmd == "add_access" || cmd == "delete_access" || cmd == "adduser" || cmd == "deleteuser")
-    {
-        if (data.length() == 0)
-            return false;
-        return syncAccessFromHttp(data, 15000);
-    }
-
-    if (cmd == "change_mode")
-    {
-        DeviceMode newMode = cfg.mode;
-
-        if (data == "normal")
-        {
-            if (cfg.modeDeviceData == MODE_ACCESS_DOOR)
-            {
-                Buzzer.found();
-                LCD.setInfo1("");
-                newMode = MODE_NORMAL;
-            }
-        }
-        else if (data == "open")
-        {
-            if (cfg.modeDeviceData == MODE_ACCESS_DOOR)
-            {
-                Buzzer.granted();
-                LCD.setInfo1("Force Open");
-                newMode = MODE_OPEN;
-            }
-        }
-        else if (data == "close")
-        {
-            if (cfg.modeDeviceData == MODE_ACCESS_DOOR)
-            {
-                Buzzer.reject();
-                LCD.setInfo1("Force Close");
-                newMode = MODE_CLOSE;
-            }
-        }
-        else if (data == "add")
-        {
-            if (cfg.modeDeviceData == MODE_ATTENDANCE)
-            {
-                Buzzer.granted();
-                LCD.setInfo1("ADD Card");
-                newMode = MODE_ADD;
-            }
-        }
-        else if (data == "scann" || data == "scan")
-        {
-            if (cfg.modeDeviceData == MODE_ATTENDANCE)
-            {
-                Buzzer.granted();
-                LCD.setInfo1("");
-                LCD.showTemp("Tab Card", "", 2000);
-                newMode = MODE_SCAN;
-            }
-        }
-        else
-        {
-            Buzzer.reset();
-            Serial.println("[MQTT] change_moded invalid data=" + data);
-            return false;
-        }
-
-        cfg.mode = newMode;
-        bool ok = Config.save();
-        Serial.println(String("[MQTT] change_moded saved mode=") + String((int)cfg.mode) + (ok ? " OK" : " FAILED"));
-
-        if (cfg.mode == MODE_OPEN)
-            Door.forceOpen();
-        else if (cfg.mode == MODE_CLOSE)
-            Door.forceClose();
-        else
-            Door.normal();
-
-        return ok;
-    }
-
-    if (cmd == "open")
-    {
-        Door.noTouchOpen();
-    }
-    if (cmd == "reboot")
-    {
-        Buzzer.reboot();
-        delay(3000);
-        ESP.restart();
-    }
     if (cmd == "reset")
     {
         SD.remove("/config.bin");
@@ -330,55 +232,4 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
     }
 
     return false;
-}
-
-bool MQTTManager::syncAccessFromHttp(const String &url, uint32_t timeoutMs)
-{
-    if (!networkReady())
-        return false;
-
-    Serial.println("[MQTT] Sync access URL=" + url);
-
-    bool https = url.startsWith("https://");
-
-    HTTPClient http;
-    http.setTimeout(timeoutMs);
-
-    if (https)
-    {
-        WiFiClientSecure secure;
-        secure.setInsecure();
-        if (!http.begin(secure, url))
-            return false;
-    }
-    else
-    {
-        if (!http.begin(url))
-            return false;
-    }
-
-    int code = http.GET();
-    if (code != HTTP_CODE_OK)
-    {
-        Serial.println("[MQTT] HTTP GET failed code=" + String(code));
-        http.end();
-        return false;
-    }
-
-    int len = http.getSize();
-    if (len <= 0)
-    {
-        Serial.println("[MQTT] HTTP content length invalid len=" + String(len));
-        http.end();
-        return false;
-    }
-
-    Serial.println("[MQTT] Download size=" + String(len));
-
-    WiFiClient *stream = http.getStreamPtr();
-    bool ok = Storage.replaceAccessFromStream(*stream, (size_t)len);
-    http.end();
-
-    Serial.println(String("[MQTT] Sync access ") + (ok ? "OK" : "FAILED"));
-    return ok;
 }
