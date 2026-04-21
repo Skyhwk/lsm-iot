@@ -167,7 +167,3 @@ Perintah **`reset`** (sesuai implementasi) dapat menghapus `/config.bin` dan me-
 File countdown sesi disimpan di **SPIFFS** (misalnya `remaining_seconds.txt`, `total_shift_seconds.txt` di root SPIFFS), bukan di SD.
 
 ---
-
-## Lisensi / tim
-
-Sesuaikan bagian ini dengan kebijakan repositori Anda.
