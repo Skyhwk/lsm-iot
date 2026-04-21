@@ -40,6 +40,5 @@ float GravityLSM::readDBA()
     dba += calibAdjust;
 
     float dbaConstrained = constrain(dba, 30.0f, 130.0f);
-    LCD.setInfo2(String(dbaConstrained));
     return dbaConstrained;
 }

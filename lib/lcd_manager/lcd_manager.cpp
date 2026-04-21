@@ -57,6 +57,11 @@ void LCDManager::setStaticIp(const String &ip)
     _forceShowIP = true;
 }
 
+void LCDManager::setFooterText(const String &text)
+{
+    _footerText = text;
+}
+
 void LCDManager::showTemp(const String &l1, const String &l2, unsigned long duration)
 {
     showTemp(l1, l2, duration, false);
@@ -185,41 +190,56 @@ void LCDManager::draw()
 
     uint8_t usedSize1 = 0;
 
-    if (line1.length() > 0)
+    if (!_tempActive && line1.length() == 0 && line2.length() > 0)
     {
-        // Line 1 fixed size + left aligned
-        uint8_t size1 = 2;
-        if (clampTextToWidth(line1, size1) != line1)
-            size1 = 1;
-        line1 = clampTextToWidth(line1, size1);
-        display.setTextSize(size1);
-        usedSize1 = size1;
-        int16_t y1 = 18;
-        display.setCursor(0, y1);
-        display.print(line1);
-    }
+        uint8_t size = getBestTextSize(line2, 2);
+        line2 = clampTextToWidth(line2, size);
+        display.setTextSize(size);
 
-    if (line2.length() > 0)
-    {
-        // Line 2 fixed size + left aligned
-        uint8_t size2 = 1;
-        line2 = clampTextToWidth(line2, size2);
-        display.setTextSize(size2);
-        int16_t y2 = 38;
-        if (usedSize1 > 0)
-            y2 = 18 + (usedSize1 * 8) + 4;
-        display.setCursor(0, y2);
+        display.getTextBounds(line2, 0, 0, &x1, &y1, &w, &h);
+        int16_t x = (SCREEN_WIDTH - w) / 2;
+        int16_t y = 14 + ((40 - h) / 2);
+        display.setCursor(x, y);
         display.print(line2);
+    }
+    else
+    {
+        if (line1.length() > 0)
+        {
+            // Line 1 fixed size + left aligned
+            uint8_t size1 = 2;
+            if (clampTextToWidth(line1, size1) != line1)
+                size1 = 1;
+            line1 = clampTextToWidth(line1, size1);
+            display.setTextSize(size1);
+            usedSize1 = size1;
+            int16_t y1 = 18;
+            display.setCursor(0, y1);
+            display.print(line1);
+        }
+
+        if (line2.length() > 0)
+        {
+            // Line 2 fixed size + left aligned
+            uint8_t size2 = 1;
+            line2 = clampTextToWidth(line2, size2);
+            display.setTextSize(size2);
+            int16_t y2 = 38;
+            if (usedSize1 > 0)
+                y2 = 18 + (usedSize1 * 8) + 4;
+            display.setCursor(0, y2);
+            display.print(line2);
+        }
     }
 
     // ================= FOOTER =================
     display.setTextSize(1);
-    display.setCursor(0, 56);
+    String footerText = _footerText.length() > 0 ? _footerText : (_showIP ? _ip : _deviceName);
+    footerText = clampTextToWidth(footerText, 1);
 
-    if (_showIP)
-        display.print(_ip);
-    else
-        display.print(_deviceName);
+    display.getTextBounds(footerText, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor((SCREEN_WIDTH - w) / 2, 56);
+    display.print(footerText);
 
     display.display();
 }

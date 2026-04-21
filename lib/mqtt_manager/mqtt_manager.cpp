@@ -16,6 +16,18 @@ static bool isEmptyStr(const char *s)
     return (s == nullptr) || (s[0] == '\0');
 }
 
+static bool parseTruthy(const String &value)
+{
+    return value == "true" || value == "1" || value == "on" || value == "start";
+}
+
+static String buildActionTopic(const char *deviceId)
+{
+    if (isEmptyStr(deviceId))
+        return "";
+    return String("/intilab/iot/act/") + String(deviceId);
+}
+
 void MQTTManager::begin()
 {
     auto &cfg = Config.get();
@@ -81,8 +93,6 @@ bool MQTTManager::wifiConfigValid() const
 {
     auto &cfg = Config.get();
     if (isEmptyStr(cfg.ssid))
-        return false;
-    if (isEmptyStr(cfg.password))
         return false;
     return true;
 }
@@ -152,6 +162,7 @@ bool MQTTManager::connectIfNeeded()
     auto &cfg = Config.get();
     String clientId = String(cfg.iddev);
 
+    Serial.println("[MQTT] clientId='" + clientId + "' len=" + String(clientId.length()));
     Serial.println("[MQTT] Connecting as " + clientId);
     bool ok = client.connect(clientId.c_str());
     if (!ok)
@@ -162,14 +173,26 @@ bool MQTTManager::connectIfNeeded()
 
     Serial.println("[MQTT] Connected");
 
-    if (!isEmptyStr(cfg.topic_subscribe))
+    String actionTopic = buildActionTopic(cfg.iddev);
+    if (!actionTopic.isEmpty())
     {
-        Serial.println("[MQTT] Subscribing " + String(cfg.topic_subscribe));
-        client.subscribe(cfg.topic_subscribe);
+        Serial.println("[MQTT] Subscribing action topic " + actionTopic);
+        client.subscribe(actionTopic.c_str());
     }
     else
     {
-        Serial.println("[MQTT] topic_subscribe empty");
+        Serial.println("[MQTT] action topic empty");
+    }
+
+    String legacyTopic = String(cfg.topic_subscribe);
+    if (!legacyTopic.isEmpty() && legacyTopic != actionTopic)
+    {
+        Serial.println("[MQTT] Subscribing legacy topic " + legacyTopic);
+        client.subscribe(legacyTopic.c_str());
+    }
+    else
+    {
+        Serial.println("[MQTT] legacy topic_subscribe skipped");
     }
 
     return true;
@@ -215,21 +238,78 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
     String device = doc["device"] | "";
     if (device != String(cfg.iddev))
     {
-        Serial.println("[MQTT] Ignore command for device=" + device);
+        Serial.println("[MQTT] Ignore command for device='" + device + "' expected='" + String(cfg.iddev) + "'");
         return false;
     }
 
     String cmd = doc["topic"] | "";
+    String object = doc["object"] | "";
     String data = doc["data"] | "";
 
-    Serial.println("[MQTT] Command cmd=" + cmd);
+    Serial.println("[MQTT] Command topic='" + topic + "' cmd='" + cmd + "' object='" + object + "' data='" + data + "'");
     if (cmd == "reset")
     {
         SD.remove("/config.bin");
-        Buzzer.reset();
         delay(3000);
         ESP.restart();
     }
 
-    return false;
+    if (cmd != "sound meter")
+        return true;
+
+    bool changed = false;
+
+    if (object == "no_sample")
+    {
+        Serial.println("[MQTT] Processing no_sample payload");
+        int separatorPos = data.indexOf(',');
+        if (separatorPos != -1)
+        {
+            String sample = data.substring(0, separatorPos);
+            String shift = data.substring(separatorPos + 1);
+
+            sample.trim();
+            shift.trim();
+
+            strlcpy(cfg.no_sample, sample.c_str(), sizeof(cfg.no_sample));
+            strlcpy(cfg.shift, "24", sizeof(cfg.shift));
+
+            Serial.println("[MQTT] Parsed no_sample='" + sample + "' shift='" + shift + "'");
+        }
+        else
+        {
+            data.trim();
+            strlcpy(cfg.no_sample, data.c_str(), sizeof(cfg.no_sample));
+            strlcpy(cfg.shift, "24", sizeof(cfg.shift));
+            Serial.println("[MQTT] Parsed no_sample='" + data + "' without shift");
+        }
+
+        cfg.is_ready = false;
+        changed = true;
+        Serial.println("[MQTT] no_sample=" + String(cfg.no_sample) + " shift=" + String(cfg.shift));
+    }
+    else if (object == "start")
+    {
+        cfg.is_ready = parseTruthy(data);
+        changed = true;
+        Serial.println("[MQTT] is_ready=" + String(cfg.is_ready ? "true" : "false"));
+    }
+    else if (object == "stop")
+    {
+        cfg.is_ready = false;
+        cfg.no_sample[0] = '\0';
+        strlcpy(cfg.shift, "24", sizeof(cfg.shift));
+        changed = true;
+        Serial.println("[MQTT] session stopped");
+    }
+
+    if (changed)
+    {
+        if (!Config.save())
+            Serial.println("[MQTT] Failed to persist config");
+        else
+            Serial.println("[MQTT] Config persisted after command");
+    }
+
+    return true;
 }

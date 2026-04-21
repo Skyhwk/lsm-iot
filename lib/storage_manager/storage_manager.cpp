@@ -4,9 +4,6 @@ StorageManager Storage;
 
 bool StorageManager::begin()
 {
-    if (!SD.begin())
-        return false;
-
     // ===============================
     // LOG FILE
     // ===============================
@@ -20,9 +17,7 @@ bool StorageManager::begin()
         Serial.println("log.bin created");
     }
 
-    initLog();
-
-    return true;
+    return initLog();
 }
 
 void StorageManager::safeCopy(char *dest, const char *src, size_t len)
@@ -37,13 +32,25 @@ void StorageManager::safeCopy(char *dest, const char *src, size_t len)
 
 bool StorageManager::initLog()
 {
-    if (!SD.exists(LOG_FILE))
+    bool needInit = !SD.exists(LOG_FILE);
+
+    if (!needInit)
     {
+        File existing = SD.open(LOG_FILE, FILE_READ);
+        if (!existing)
+            return false;
+        needInit = existing.size() < sizeof(LogHeader);
+        existing.close();
+    }
+
+    if (needInit)
+    {
+        SD.remove(LOG_FILE);
         File f = SD.open(LOG_FILE, FILE_WRITE);
         if (!f)
             return false;
 
-        LogHeader header;
+        LogHeader header = {};
         header.writeIndex = 0;
         header.totalWritten = 0;
 
@@ -59,9 +66,25 @@ bool StorageManager::addLog(const LogRecord &input)
     if (!f)
         return false;
 
-    LogHeader header;
+    LogHeader header = {};
+    size_t headerRead = f.read((uint8_t *)&header, sizeof(header));
+    if (headerRead != sizeof(header))
+    {
+        f.close();
+        if (!initLog())
+            return false;
 
-    f.read((uint8_t *)&header, sizeof(header));
+        f = SD.open(LOG_FILE, "r+");
+        if (!f)
+            return false;
+
+        headerRead = f.read((uint8_t *)&header, sizeof(header));
+        if (headerRead != sizeof(header))
+        {
+            f.close();
+            return false;
+        }
+    }
 
     uint32_t index = header.writeIndex % MAX_LOG_RECORD;
 

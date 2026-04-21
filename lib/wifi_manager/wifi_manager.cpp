@@ -8,7 +8,7 @@ bool WifiManager::begin()
 {
     WiFi.mode(WIFI_OFF);
     delay(200);
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_AP_STA);
     WiFi.setSleep(false);
     delay(200);
 
@@ -20,6 +20,7 @@ bool WifiManager::begin()
 void WifiManager::connect()
 {
     auto &cfg = Config.get();
+    bool useDhcp = cfg.dhcp;
 
     Serial.println("=== WIFI CONFIG ===");
     Serial.println("SSID: " + String(cfg.ssid));
@@ -27,7 +28,7 @@ void WifiManager::connect()
     Serial.println("DHCP: " + String(cfg.dhcp ? "true" : "false"));
     LCD.setInfo1("Connecting...");
     // ===== DHCP / STATIC CONFIG =====
-    if (!cfg.dhcp)
+    if (!useDhcp)
     {
         IPAddress ip, gw, sn;
 
@@ -35,20 +36,21 @@ void WifiManager::connect()
             !gw.fromString(cfg.gateway) ||
             !sn.fromString(cfg.subnet))
         {
-            Serial.println("Invalid Static IP Config!");
-            return;
+            Serial.println("Invalid Static IP Config! Falling back to DHCP");
+            useDhcp = true;
         }
-
-        if (!WiFi.config(ip, gw, sn))
+        else if (!WiFi.config(ip, gw, sn))
         {
-            Serial.println("Failed to apply Static IP");
+            Serial.println("Failed to apply Static IP, falling back to DHCP");
+            useDhcp = true;
         }
         else
         {
             Serial.println("Static IP Applied");
         }
     }
-    else
+
+    if (useDhcp)
     {
         // Reset ke DHCP
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);

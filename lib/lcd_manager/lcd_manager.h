@@ -14,6 +14,7 @@ public:
     void setDeviceName(const String &name);
     void setIP(const String &ip);
     void setStaticIp(const String &ip);
+    void setFooterText(const String &text);
 
     void showTemp(const String &l1, const String &l2, unsigned long duration);
     void showTemp(const String &l1, const String &l2, unsigned long duration, bool clearAfter);
@@ -35,6 +36,7 @@ private:
     // footer rotation
     String _deviceName;
     String _ip;
+    String _footerText;
     bool _showIP = false;
     bool _forceShowIP = false;
     unsigned long _rotationStart = 0;

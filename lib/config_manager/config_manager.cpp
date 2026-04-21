@@ -30,7 +30,7 @@ bool ConfigManager::load()
     size_t read = f.read((uint8_t *)&config, toRead);
     f.close();
 
-    Serial.println("[Config] Load filesize=" + String(sz) + " read=" + String(read) + " modeDeviceData=" + String((int)config.modeDeviceData) + " mode=" + String((int)config.mode));
+    Serial.println("[Config] Load filesize=" + String(sz) + " read=" + String(read));
 
     // migration heuristic: older firmware version may have stored iddev where topic_subscribe is now
     if (config.iddev[0] == '\0' && config.topic_subscribe[0] != '\0')
@@ -44,12 +44,16 @@ bool ConfigManager::load()
     }
 
     setDefaultIfInvalid();
+    Serial.println("[Config] Loaded iddev='" + String(config.iddev) + "' len=" + String(strlen(config.iddev)));
+    Serial.println("[Config] Loaded port=" + String(config.port));
 
     return true;
 }
 
 bool ConfigManager::save()
 {
+    Serial.println("[Config] Saving iddev='" + String(config.iddev) + "' len=" + String(strlen(config.iddev)));
+    Serial.println("[Config] Saving port=" + String(config.port));
     SD.remove("/config.bin");
     File f = SD.open("/config.bin", FILE_WRITE);
     if (!f)
@@ -59,7 +63,7 @@ bool ConfigManager::save()
     f.flush(); // Pastikan data benar-benar ditulis ke SD card
     f.close();
 
-    Serial.println("[Config] Save mode=" + String((int)config.mode) + " written=" + String(written) + " expected=" + String(sizeof(DeviceConfig)));
+    Serial.println("[Config] Save written=" + String(written) + " expected=" + String(sizeof(DeviceConfig)));
 
     return (written == sizeof(DeviceConfig));
 }
@@ -80,6 +84,12 @@ void ConfigManager::setDefaultIfInvalid()
         strcpy(config.password, "intiLab68");
 
     // DHCP
+    if (!config.dhcp &&
+        (config.ip[0] == '\0' || config.gateway[0] == '\0' || config.subnet[0] == '\0'))
+    {
+        config.dhcp = true;
+    }
+
     if (config.dhcp)
     {
         strcpy(config.ip, "");
@@ -92,14 +102,27 @@ void ConfigManager::setDefaultIfInvalid()
         strcpy(config.host, "apps.intilab.com");
 
     // Port
-    if (config.port <= 0)
+    if (config.port <= 0 || config.port > 65535)
         config.port = 1111;
+
+    // Device ID
+    if (config.iddev[0] == '\0')
+    {
+        uint32_t chip = static_cast<uint32_t>(ESP.getEfuseMac());
+        snprintf(config.iddev, sizeof(config.iddev), "lsm-%06lX", static_cast<unsigned long>(chip & 0xFFFFFFUL));
+    }
 
     // MQTT topics boleh kosong
     if (config.topic_subscribe[0] == '\0')
-        strcpy(config.topic_subscribe, "/intilab/iot/multidevices");
+        strcpy(config.topic_subscribe, "/intilab/iot/act/");
     if (config.topic_publish[0] == '\0')
-        strcpy(config.topic_publish, "/intilab/iot/log-access");
+        strcpy(config.topic_publish, "/intilab/iot");
+
+    if (config.no_sample[0] == '\0')
+        strcpy(config.no_sample, "");
+
+    if (config.shift[0] == '\0')
+        strcpy(config.shift, "24");
 
     // Offset day
     if (config.offsetday <= 0)
