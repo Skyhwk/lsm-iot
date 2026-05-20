@@ -5,11 +5,16 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <SPIFFS.h>
+#include <freertos/semphr.h>
 #include "lcd_manager.h"
 
 MQTTManager MQTT;
 
 static MQTTManager *g_mqttInstance = nullptr;
+static const char *pendingLogPath = "/mqtt_pending.txt";
+static const char *pendingLogTempPath = "/mqtt_pending.tmp";
+static SemaphoreHandle_t pendingLogMutex = nullptr;
 
 static bool isEmptyStr(const char *s)
 {
@@ -28,6 +33,14 @@ static String buildActionTopic(const char *deviceId)
     return String("/intilab/iot/act/") + String(deviceId);
 }
 
+static void clearSessionCountdown()
+{
+    if (SPIFFS.exists("/remaining_seconds.txt"))
+        SPIFFS.remove("/remaining_seconds.txt");
+    if (SPIFFS.exists("/total_shift_seconds.txt"))
+        SPIFFS.remove("/total_shift_seconds.txt");
+}
+
 void MQTTManager::begin()
 {
     auto &cfg = Config.get();
@@ -36,6 +49,9 @@ void MQTTManager::begin()
     Serial.println("[MQTT] begin() host=" + String(cfg.host) + " port=" + String(cfg.port));
 
     g_mqttInstance = this;
+    if (pendingLogMutex == nullptr)
+        pendingLogMutex = xSemaphoreCreateMutex();
+
     if (!callbackInstalled)
     {
         client.setCallback(MQTTManager::callbackThunk);
@@ -52,9 +68,15 @@ void MQTTManager::loop()
         return;
 
     client.loop();
+    flushQueuedLogs();
 }
 
 bool MQTTManager::publishLog(String payload)
+{
+    return queueLog(payload);
+}
+
+bool MQTTManager::publishLogNow(const String &payload)
 {
     if (!isConnected())
         return false;
@@ -68,7 +90,37 @@ bool MQTTManager::publishLog(String payload)
     }
 
     bool ok = client.publish(topic.c_str(), payload.c_str());
+    if (ok)
+        Serial.println("[MQTT] Session payload published topic=" + topic);
     return ok;
+}
+
+bool MQTTManager::queueLog(String payload)
+{
+    payload.trim();
+    if (payload.length() == 0)
+        return false;
+
+    if (pendingLogMutex != nullptr)
+        xSemaphoreTake(pendingLogMutex, portMAX_DELAY);
+
+    File f = SD.open(pendingLogPath, FILE_APPEND);
+    if (!f)
+    {
+        if (pendingLogMutex != nullptr)
+            xSemaphoreGive(pendingLogMutex);
+        Serial.println("[MQTT] Failed to queue session payload");
+        return false;
+    }
+
+    f.println(payload);
+    f.close();
+
+    if (pendingLogMutex != nullptr)
+        xSemaphoreGive(pendingLogMutex);
+
+    Serial.println("[MQTT] Session payload queued");
+    return true;
 }
 
 bool MQTTManager::publish(const char *topic, const char *payload)
@@ -120,6 +172,77 @@ void MQTTManager::onWifiConnected()
     lastConnectAttemptMs = 0;
 }
 
+void MQTTManager::flushQueuedLogs()
+{
+    if (!isConnected() || !SD.exists(pendingLogPath))
+        return;
+
+    if (pendingLogMutex != nullptr)
+        xSemaphoreTake(pendingLogMutex, portMAX_DELAY);
+
+    File pending = SD.open(pendingLogPath, FILE_READ);
+    if (!pending)
+    {
+        if (pendingLogMutex != nullptr)
+            xSemaphoreGive(pendingLogMutex);
+        return;
+    }
+
+    if (SD.exists(pendingLogTempPath))
+        SD.remove(pendingLogTempPath);
+
+    File remaining = SD.open(pendingLogTempPath, FILE_WRITE);
+    if (!remaining)
+    {
+        pending.close();
+        if (pendingLogMutex != nullptr)
+            xSemaphoreGive(pendingLogMutex);
+        Serial.println("[MQTT] Failed to open pending temp file");
+        return;
+    }
+
+    uint32_t sent = 0;
+    uint32_t kept = 0;
+    bool publishFailed = false;
+
+    while (pending.available())
+    {
+        String payload = pending.readStringUntil('\n');
+        payload.trim();
+        if (payload.length() == 0)
+            continue;
+
+        if (!publishFailed && publishLogNow(payload))
+        {
+            sent++;
+            client.loop();
+            delay(10);
+            continue;
+        }
+
+        publishFailed = true;
+        remaining.println(payload);
+        kept++;
+    }
+
+    pending.close();
+    remaining.close();
+
+    SD.remove(pendingLogPath);
+    if (kept > 0)
+        SD.rename(pendingLogTempPath, pendingLogPath);
+    else if (SD.exists(pendingLogTempPath))
+        SD.remove(pendingLogTempPath);
+
+    if (pendingLogMutex != nullptr)
+        xSemaphoreGive(pendingLogMutex);
+
+    if (sent > 0 || kept > 0)
+    {
+        Serial.println("[MQTT] Pending session sent=" + String(sent) + " remaining=" + String(kept));
+    }
+}
+
 bool MQTTManager::connectIfNeeded()
 {
     if (!callbackInstalled)
@@ -153,7 +276,7 @@ bool MQTTManager::connectIfNeeded()
         return false;
     lastConnectAttemptMs = now;
 
-    if (!brokerReachable(1500))
+    if (!brokerReachable(5000))
     {
         Serial.println("[MQTT] Broker not reachable");
         return false;
@@ -285,6 +408,7 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
         }
 
         cfg.is_ready = false;
+        clearSessionCountdown();
         changed = true;
         Serial.println("[MQTT] no_sample=" + String(cfg.no_sample) + " shift=" + String(cfg.shift));
     }
@@ -299,8 +423,9 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
         cfg.is_ready = false;
         cfg.no_sample[0] = '\0';
         strlcpy(cfg.shift, "24", sizeof(cfg.shift));
+        clearSessionCountdown();
         changed = true;
-        Serial.println("[MQTT] session stopped");
+        Serial.println("[MQTT] session stopped, pending queue preserved");
     }
 
     if (changed)

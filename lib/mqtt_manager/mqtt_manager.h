@@ -9,6 +9,7 @@ public:
     void begin();
     void loop();
     bool publishLog(String payload);
+    bool queueLog(String payload);
 
     bool publish(const char *topic, const char *payload);
 
@@ -21,6 +22,8 @@ private:
 
     bool connectIfNeeded();
     void onWifiConnected();
+    void flushQueuedLogs();
+    bool publishLogNow(const String &payload);
 
     static void callbackThunk(char *topic, byte *payload, unsigned int length);
     void handleMessage(const char *topic, const byte *payload, unsigned int length);

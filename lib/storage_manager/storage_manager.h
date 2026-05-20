@@ -2,28 +2,16 @@
 #include <Arduino.h>
 #include <SD.h>
 
-#define LOG_FILE "/log.bin"
-
-#define MAX_LOG_RECORD 10000
-
-#pragma pack(push, 1)
-
-struct LogHeader
-{
-    uint32_t writeIndex;
-    uint32_t totalWritten;
-};
-
 struct LogRecord
 {
     uint32_t sequence;
-    char iddev[16];
-    char no_sampel[16];
+    char iddev[50];
+    char no_sampel[32];
+    char shift[8];
     char noise[16];
-    char datetime[20]; // YYYY-MM-DD HH:MM:SS
+    char laeq[24];
+    char datetime[20]; // YYYY-MM-DDTHH:MM:SS
 };
-
-#pragma pack(pop)
 
 class StorageManager
 {
@@ -31,12 +19,13 @@ public:
     bool begin();
 
     // ===== LOG =====
-    bool initLog();
     bool addLog(const LogRecord &rec);
     uint32_t getTotalLogWritten();
 
 private:
-    void safeCopy(char *dest, const char *src, size_t len);
+    String logPathForSample(const char *sample) const;
+    bool shiftSectionExists(const char *path, const char *shift) const;
+    void writeHeader(File &f, const LogRecord &rec);
 };
 
 extern StorageManager Storage;
