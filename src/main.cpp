@@ -381,14 +381,18 @@ void taskSensor(void *pv)
                 strncpy(rec.iddev, cfg.iddev, sizeof(rec.iddev) - 1);
                 strncpy(rec.no_sampel, cfg.no_sample, sizeof(rec.no_sampel) - 1);
                 String noiseStr = String(latestDBA, 1);
+                String laeqStr = String(powf(10.0f, latestDBA * 0.1f), 1);
+                String shiftLabel = sessionShiftLabel();
                 String dt = Time.datetime();
+                strncpy(rec.shift, shiftLabel.c_str(), sizeof(rec.shift) - 1);
                 strncpy(rec.noise, noiseStr.c_str(), sizeof(rec.noise) - 1);
+                strncpy(rec.laeq, laeqStr.c_str(), sizeof(rec.laeq) - 1);
                 strncpy(rec.datetime, dt.c_str(), sizeof(rec.datetime) - 1);
 
                 if (!Storage.addLog(rec))
                     Serial.println("[Sensor] Failed to write log");
 
-                String payloadData = String(cfg.no_sample) + "," + dt + "," + sessionShiftLabel() + "," + noiseStr + "," + String(powf(10.0f, latestDBA * 0.1f), 1);
+                String payloadData = String(cfg.no_sample) + "," + dt + "," + shiftLabel + "," + noiseStr + "," + laeqStr;
                 StaticJsonDocument<256> wrapped;
                 wrapped["topic"] = "sound meter";
                 wrapped["device"] = cfg.iddev;
@@ -397,7 +401,7 @@ void taskSensor(void *pv)
                 String wrappedPayload;
                 serializeJson(wrapped, wrappedPayload);
                 if (!MQTT.publishLog(wrappedPayload))
-                    Serial.println("[Sensor] Session payload publish skipped/failed");
+                    Serial.println("[Sensor] Failed to queue session payload");
             }
 
             if (sessionActive(cfg) && Time.isSynced() && now - lastPublishMs >= sensorPublishIntervalMs)

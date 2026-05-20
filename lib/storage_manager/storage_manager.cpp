@@ -4,101 +4,90 @@ StorageManager Storage;
 
 bool StorageManager::begin()
 {
-    // ===============================
-    // LOG FILE
-    // ===============================
-
-    if (!SD.exists(LOG_FILE))
-    {
-        File f = SD.open(LOG_FILE, FILE_WRITE);
-        if (!f)
-            return false;
-        f.close();
-        Serial.println("log.bin created");
-    }
-
-    return initLog();
-}
-
-void StorageManager::safeCopy(char *dest, const char *src, size_t len)
-{
-    memset(dest, 0, len);
-    strncpy(dest, src, len - 1);
-}
-
-//
-// ====================== LOG ======================
-//
-
-bool StorageManager::initLog()
-{
-    bool needInit = !SD.exists(LOG_FILE);
-
-    if (!needInit)
-    {
-        File existing = SD.open(LOG_FILE, FILE_READ);
-        if (!existing)
-            return false;
-        needInit = existing.size() < sizeof(LogHeader);
-        existing.close();
-    }
-
-    if (needInit)
-    {
-        SD.remove(LOG_FILE);
-        File f = SD.open(LOG_FILE, FILE_WRITE);
-        if (!f)
-            return false;
-
-        LogHeader header = {};
-        header.writeIndex = 0;
-        header.totalWritten = 0;
-
-        f.write((uint8_t *)&header, sizeof(header));
-        f.close();
-    }
     return true;
 }
 
-bool StorageManager::addLog(const LogRecord &input)
+String StorageManager::logPathForSample(const char *sample) const
 {
-    File f = SD.open(LOG_FILE, "r+");
+    String name = sample;
+    name.trim();
+
+    if (name.length() == 0)
+        name = "unknown-sample";
+
+    for (size_t i = 0; i < name.length(); i++)
+    {
+        char c = name[i];
+        bool allowed = isAlphaNumeric(c) || c == '-' || c == '_' || c == '.';
+        if (c == '/' || c == '\\')
+            name.setCharAt(i, '-');
+        else if (!allowed)
+            name.setCharAt(i, '_');
+    }
+
+    if (!name.endsWith(".txt"))
+        name += ".txt";
+
+    return "/" + name;
+}
+
+bool StorageManager::shiftSectionExists(const char *path, const char *shift) const
+{
+    File f = SD.open(path, FILE_READ);
     if (!f)
         return false;
 
-    LogHeader header = {};
-    size_t headerRead = f.read((uint8_t *)&header, sizeof(header));
-    if (headerRead != sizeof(header))
+    String marker = String("## ") + String(shift);
+    while (f.available())
     {
-        f.close();
-        if (!initLog())
-            return false;
-
-        f = SD.open(LOG_FILE, "r+");
-        if (!f)
-            return false;
-
-        headerRead = f.read((uint8_t *)&header, sizeof(header));
-        if (headerRead != sizeof(header))
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line == marker)
         {
             f.close();
-            return false;
+            return true;
         }
     }
 
-    uint32_t index = header.writeIndex % MAX_LOG_RECORD;
+    f.close();
+    return false;
+}
 
-    LogRecord rec = input;
-    rec.sequence = header.totalWritten + 1;
+void StorageManager::writeHeader(File &f, const LogRecord &rec)
+{
+    f.println();
+    f.println(String("## ") + String(rec.shift));
+    f.println("datetime,dBA,LAeq,device,no_sample");
+}
 
-    f.seek(sizeof(LogHeader) + index * sizeof(LogRecord));
-    f.write((uint8_t *)&rec, sizeof(rec));
+bool StorageManager::addLog(const LogRecord &rec)
+{
+    String path = logPathForSample(rec.no_sampel);
+    bool isNewFile = !SD.exists(path.c_str());
+    bool needsShiftHeader = isNewFile || !shiftSectionExists(path.c_str(), rec.shift);
 
-    header.writeIndex++;
-    header.totalWritten++;
+    File f = SD.open(path.c_str(), FILE_APPEND);
+    if (!f)
+        return false;
 
-    f.seek(0);
-    f.write((uint8_t *)&header, sizeof(header));
+    if (isNewFile)
+    {
+        f.println(String("# Sound Meter Log"));
+        f.println(String("sample: ") + String(rec.no_sampel));
+    }
+
+    if (needsShiftHeader)
+        writeHeader(f, rec);
+
+    f.print(rec.datetime);
+    f.print(",");
+    f.print(rec.noise);
+    f.print(",");
+    f.print(rec.laeq);
+    f.print(",");
+    f.print(rec.iddev);
+    f.print(",");
+    f.println(rec.no_sampel);
 
     f.close();
     return true;
@@ -106,13 +95,5 @@ bool StorageManager::addLog(const LogRecord &input)
 
 uint32_t StorageManager::getTotalLogWritten()
 {
-    File f = SD.open(LOG_FILE, FILE_READ);
-    if (!f)
-        return 0;
-
-    LogHeader header;
-    f.read((uint8_t *)&header, sizeof(header));
-    f.close();
-
-    return header.totalWritten;
+    return 0;
 }
