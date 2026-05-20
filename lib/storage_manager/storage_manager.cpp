@@ -7,7 +7,7 @@ bool StorageManager::begin()
     return true;
 }
 
-String StorageManager::logPathForSample(const char *sample) const
+String StorageManager::sampleFolderName(const char *sample) const
 {
     String name = sample;
     name.trim();
@@ -25,69 +25,54 @@ String StorageManager::logPathForSample(const char *sample) const
             name.setCharAt(i, '_');
     }
 
-    if (!name.endsWith(".txt"))
-        name += ".txt";
-
-    return "/" + name;
+    return name;
 }
 
-bool StorageManager::shiftSectionExists(const char *path, const char *shift) const
+String StorageManager::logPathForSample(const char *sample) const
 {
-    File f = SD.open(path, FILE_READ);
-    if (!f)
-        return false;
-
-    String marker = String("## ") + String(shift);
-    while (f.available())
-    {
-        String line = f.readStringUntil('\n');
-        line.trim();
-        if (line == marker)
-        {
-            f.close();
-            return true;
-        }
-    }
-
-    f.close();
-    return false;
+    return "/" + sampleFolderName(sample) + "/data.txt";
 }
 
-void StorageManager::writeHeader(File &f, const LogRecord &rec)
+bool StorageManager::ensureSampleFolder(const char *sample)
 {
-    f.println();
-    f.println(String("## ") + String(rec.shift));
-    f.println("datetime,dBA,LAeq,device,no_sample");
+    String folderPath = "/" + sampleFolderName(sample);
+    if (SD.exists(folderPath.c_str()))
+        return true;
+
+    return SD.mkdir(folderPath.c_str());
+}
+
+void StorageManager::writeHeader(File &f)
+{
+    f.println("datetime;no_sample;shift;dBA;LAeq;device");
 }
 
 bool StorageManager::addLog(const LogRecord &rec)
 {
+    if (!ensureSampleFolder(rec.no_sampel))
+        return false;
+
     String path = logPathForSample(rec.no_sampel);
     bool isNewFile = !SD.exists(path.c_str());
-    bool needsShiftHeader = isNewFile || !shiftSectionExists(path.c_str(), rec.shift);
 
     File f = SD.open(path.c_str(), FILE_APPEND);
     if (!f)
         return false;
 
     if (isNewFile)
-    {
-        f.println(String("# Sound Meter Log"));
-        f.println(String("sample: ") + String(rec.no_sampel));
-    }
-
-    if (needsShiftHeader)
-        writeHeader(f, rec);
+        writeHeader(f);
 
     f.print(rec.datetime);
-    f.print(",");
+    f.print(";");
+    f.print(rec.no_sampel);
+    f.print(";");
+    f.print(rec.shift);
+    f.print(";");
     f.print(rec.noise);
-    f.print(",");
+    f.print(";");
     f.print(rec.laeq);
-    f.print(",");
-    f.print(rec.iddev);
-    f.print(",");
-    f.println(rec.no_sampel);
+    f.print(";");
+    f.println(rec.iddev);
 
     f.close();
     return true;
