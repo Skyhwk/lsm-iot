@@ -23,9 +23,10 @@ public:
     uint32_t getTotalLogWritten();
 
 private:
+    String sampleFolderName(const char *sample) const;
     String logPathForSample(const char *sample) const;
-    bool shiftSectionExists(const char *path, const char *shift) const;
-    void writeHeader(File &f, const LogRecord &rec);
+    bool ensureSampleFolder(const char *sample);
+    void writeHeader(File &f);
 };
 
 extern StorageManager Storage;
