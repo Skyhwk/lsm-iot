@@ -10,6 +10,7 @@
 #include "lcd_manager.h"
 
 MQTTManager MQTT;
+volatile unsigned long MQTTSessionResetVersion = 0;
 
 static MQTTManager *g_mqttInstance = nullptr;
 static const char *pendingLogPath = "/mqtt_pending.txt";
@@ -385,6 +386,10 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
     if (object == "no_sample")
     {
         Serial.println("[MQTT] Processing no_sample payload");
+        cfg.is_ready = false;
+        clearSessionCountdown();
+        MQTTSessionResetVersion++;
+
         int separatorPos = data.indexOf(',');
         if (separatorPos != -1)
         {
@@ -407,8 +412,6 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
             Serial.println("[MQTT] Parsed no_sample='" + data + "' without shift");
         }
 
-        cfg.is_ready = false;
-        clearSessionCountdown();
         changed = true;
         Serial.println("[MQTT] no_sample=" + String(cfg.no_sample) + " shift=" + String(cfg.shift));
     }
@@ -424,6 +427,7 @@ bool MQTTManager::handleCommandJson(const String &topic, const String &message)
         cfg.no_sample[0] = '\0';
         strlcpy(cfg.shift, "24", sizeof(cfg.shift));
         clearSessionCountdown();
+        MQTTSessionResetVersion++;
         changed = true;
         Serial.println("[MQTT] session stopped, pending queue preserved");
     }

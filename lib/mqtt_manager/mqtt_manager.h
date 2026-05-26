@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <Arduino.h>
 
+extern volatile unsigned long MQTTSessionResetVersion;
+
 class MQTTManager
 {
 public:

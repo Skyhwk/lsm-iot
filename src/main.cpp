@@ -42,9 +42,11 @@ TaskHandle_t taskHandleSensor;
 float latestDBA = 0.0f;
 unsigned long lastPublishMs = 0;
 unsigned long lastSessionSecondMs = 0;
+unsigned long lastSessionSaveMs = 0;
 unsigned long sessionTotalSeconds = 0;
 unsigned long sessionRemainingSeconds = 0;
 unsigned long lastSessionPayloadSecond = ULONG_MAX;
+unsigned long observedSessionResetVersion = 0;
 bool sessionCountdownInitialized = false;
 char sessionSampleCache[32] = "";
 char sessionShiftCache[8] = "";
@@ -54,6 +56,7 @@ bool spiffsReady = false;
 
 static const unsigned long sensorReadIntervalMs = 300;
 static const unsigned long sensorPublishIntervalMs = 1000;
+static const unsigned long countdownSaveIntervalMs = 30000;
 static const char *portalSsid = "Device Intilab";
 static const char *portalPassword = "intiLab6868";
 static const char *countdownRemainingPath = "/remaining_seconds.txt";
@@ -92,9 +95,18 @@ static unsigned long sessionElapsedSeconds()
     return 0;
 }
 
+static unsigned long elapsedMillisSince(unsigned long now, unsigned long previous)
+{
+    if (previous > now)
+        return 0;
+    return now - previous;
+}
+
 static bool shouldSendSessionPayload()
 {
     if (!sessionCountdownInitialized || sessionTotalSeconds == 0)
+        return false;
+    if (sessionRemainingSeconds == 0)
         return false;
 
     unsigned long elapsed = sessionElapsedSeconds();
@@ -113,6 +125,7 @@ static bool shouldSendSessionPayload()
 static void resetSessionState()
 {
     lastSessionSecondMs = 0;
+    lastSessionSaveMs = 0;
     sessionTotalSeconds = 0;
     sessionRemainingSeconds = 0;
     lastSessionPayloadSecond = ULONG_MAX;
@@ -193,7 +206,7 @@ static void stopMeasurementSession(bool clearSample)
     resetSessionState();
 }
 
-static void ensureSessionCountdown(DeviceConfig &cfg)
+static void ensureSessionCountdown(DeviceConfig &cfg, unsigned long now)
 {
     if (strcmp(sessionSampleCache, cfg.no_sample) != 0 || strcmp(sessionShiftCache, cfg.shift) != 0)
     {
@@ -214,7 +227,8 @@ static void ensureSessionCountdown(DeviceConfig &cfg)
         sessionRemainingSeconds = sessionTotalSeconds;
 
     sessionCountdownInitialized = true;
-    lastSessionSecondMs = millis();
+    lastSessionSecondMs = now;
+    lastSessionSaveMs = lastSessionSecondMs;
     strlcpy(sessionSampleCache, cfg.no_sample, sizeof(sessionSampleCache));
     strlcpy(sessionShiftCache, cfg.shift, sizeof(sessionShiftCache));
     saveSessionCountdown();
@@ -337,6 +351,12 @@ void taskSensor(void *pv)
             unsigned long now = millis();
             auto &cfg = Config.get();
 
+            if (observedSessionResetVersion != MQTTSessionResetVersion)
+            {
+                observedSessionResetVersion = MQTTSessionResetVersion;
+                resetSessionState();
+            }
+
             if (now - lastReadMs >= sensorReadIntervalMs)
             {
                 lastReadMs = now;
@@ -352,9 +372,14 @@ void taskSensor(void *pv)
             {
                 resetSessionState();
             }
+            else if (!sessionActive(cfg))
+            {
+                if (strcmp(sessionSampleCache, cfg.no_sample) != 0 || strcmp(sessionShiftCache, cfg.shift) != 0)
+                    resetSessionState();
+            }
             else
             {
-                ensureSessionCountdown(cfg);
+                ensureSessionCountdown(cfg, now);
             }
 
             if (sessionActive(cfg) && sessionCountdownInitialized && sessionRemainingSeconds == 0)
@@ -366,12 +391,30 @@ void taskSensor(void *pv)
                 continue;
             }
 
-            if (sessionActive(cfg) && sessionCountdownInitialized && now - lastSessionSecondMs >= 1000)
+            unsigned long sessionElapsedMs = elapsedMillisSince(now, lastSessionSecondMs);
+            if (sessionActive(cfg) && sessionCountdownInitialized && sessionElapsedMs >= 1000)
             {
-                lastSessionSecondMs = now;
-                if (sessionRemainingSeconds > 0)
+                while (sessionElapsedMs >= 1000 && sessionRemainingSeconds > 0)
+                {
+                    lastSessionSecondMs += 1000;
                     sessionRemainingSeconds--;
-                saveSessionCountdown();
+                    sessionElapsedMs -= 1000;
+                }
+
+                if (sessionRemainingSeconds == 0 || now - lastSessionSaveMs >= countdownSaveIntervalMs)
+                {
+                    saveSessionCountdown();
+                    lastSessionSaveMs = now;
+                }
+
+                if (sessionRemainingSeconds == 0)
+                {
+                    Serial.println("[Session] Shift complete");
+                    stopMeasurementSession(true);
+                    LCD.showTemp("Selesai", "Waktu Habis", 3000);
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    continue;
+                }
             }
 
             if (sessionActive(cfg) && Time.isSynced() && shouldSendSessionPayload())
